@@ -1,9 +1,11 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 import os
 from sqlalchemy.orm import Session
 from database import PDFChunk, SessionLocal, init_db
 from pdf_utils import extract_text, chunk_text
 from embeddings import build_faiss_index, query_faiss
+from rag_gemma import generate_answer
 
 # Initialize DB
 print("Initializing database...")
@@ -12,6 +14,14 @@ init_db()
 app = FastAPI()
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # React frontend
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def save_file(file: UploadFile):
     file_path = os.path.join(UPLOAD_DIR, file.filename)
@@ -56,6 +66,16 @@ async def build_index():
     return {"status": "FAISS index built successfully."}
 
 @app.get("/query")
-async def query_document(q: str = Query(...), k: int = 5):
+async def query_document(q: str = Query(...), k: int = 3):
     results = query_faiss(q, k)
     return {"query": q, "results": results}
+
+@app.get("/rag-answer")
+async def rag_answer(q: str = Query(...), top_k: int = 3):
+    answer = generate_answer(q, top_k)
+    return {"query": q, "answer": answer}
+
+@app.get("/list-files")
+async def list_files():
+    files = [f for f in os.listdir(UPLOAD_DIR) if f.endswith(".pdf")]
+    return {"files": files}
